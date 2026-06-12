@@ -99,6 +99,7 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation("androidx.media3:media3-exoplayer:1.2.1")
+  implementation("androidx.media3:media3-exoplayer-hls:1.2.1")
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
