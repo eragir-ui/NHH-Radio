@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer Headband ring of Headphones -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M 34,58 A 20,20 0 0,1 74,58" />
+
+    <!-- Left Ear Cup -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 28,52 L 34,52 A 2,2 0 0,1 36,54 L 36,66 A 2,2 0 0,1 34,68 L 28,68 A 4,4 0 0,1 24,64 L 24,56 A 4,4 0 0,1 28,52 Z" />
+
+    <!-- Right Ear Cup -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 74,52 L 80,52 A 4,4 0 0,1 84,56 L 84,64 A 4,4 0 0,1 80,68 L 74,68 A 2,2 0 0,1 72,66 L 72,54 A 2,2 0 0,1 74,52 Z" />
+
+    <!-- Pulsing Soundwaves / Radio Wave in middle -->
+    <path
+        android:fillColor="#00E676"
+        android:pathData="M 50,42 L 50,66 L 52,66 L 52,42 Z" />
+    <path
+        android:fillColor="#00E676"
+        android:pathData="M 44,48 L 44,60 L 46,60 L 46,48 Z" />
+    <path
+        android:fillColor="#00E676"
+        android:pathData="M 56,46 L 56,62 L 58,62 L 58,46 Z" />
+    <path
+        android:fillColor="#00E676"
+        android:pathData="M 38,52 L 38,56 L 40,56 L 40,52 Z" />
+    <path
+        android:fillColor="#00E676"
+        android:pathData="M 62,50 L 62,58 L 64,58 L 64,50 Z" />
+</vector>

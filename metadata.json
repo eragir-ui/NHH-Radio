@@ -1,0 +1,6 @@
+{
+  "name": "NHH Radio",
+  "description": "Güzel ve sade internet radyo dinleme programı.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
