@@ -11,8 +11,12 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import android.content.Intent
+import android.os.Build
+import com.example.RadioService
 import com.example.data.RadioStation
 import com.example.data.RadioStationRepository
 import kotlinx.coroutines.Dispatchers
@@ -220,6 +224,35 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun startService() {
+        try {
+            val context = getApplication<Application>()
+            val intent = Intent(context, RadioService::class.java).apply {
+                action = "START_PLAYBACK"
+                putExtra("STATION_NAME", _currentStation.value.name)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun stopService() {
+        try {
+            val context = getApplication<Application>()
+            val intent = Intent(context, RadioService::class.java).apply {
+                action = "STOP_PLAYBACK"
+            }
+            context.startService(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun togglePlayback() {
         val isCurrentlyPlaying = _isPlaying.value
         reconnectJob?.cancel()
@@ -232,6 +265,8 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 exoPlayer?.play()
                 _isPlaying.value = true
+                _currentTrackName.value = "Canlı Yayın"
+                startService()
                 startLiveMetadataMonitoring(_currentStation.value.streamUrl)
             }
         }
@@ -248,13 +283,13 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.Main) {
             try {
-                // Configure generous buffer parameters to prevent stuttering/dropouts entirely
+                // Configure robust buffering parameters specifically for live radio streaming
                 val loadControl = DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
-                        15_000, // 15 seconds min buffer to prevent disconnects
-                        50_000, // 50 seconds max buffer
-                        400,    // 400 milliseconds buffer before starting playback (quick start)
-                        800     // 800 milliseconds buffer after a rebuffering event
+                        35_000, // 35 seconds of minimum buffered media before playing can be started/resumed
+                        100_000, // 100 seconds of maximum buffer size
+                        2_500,  // 2.5 seconds of initial buffer required before starting playback (smooth start!)
+                        5_000   // 5.0 seconds of buffer required after alert/rebuffering (prevents rapid stutter loops!)
                     )
                     .build()
 
@@ -287,28 +322,20 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                         when (state) {
                             Player.STATE_BUFFERING -> {
                                 _isBuffering.value = true
+                                _currentTrackName.value = "Yükleniyor..."
                             }
                             Player.STATE_READY -> {
                                 _isBuffering.value = false
                                 _isPlaying.value = true
                                 reconnectAttempts = 0
-                                // Immediately query backend stream title upon player readiness
-                                viewModelScope.launch(Dispatchers.IO) {
-                                    val streamTitle = fetchIcyStreamTitle(streamUrl)
-                                    if (!streamTitle.isNullOrEmpty()) {
-                                        val cleanedTitle = cleanTrackName(streamTitle)
-                                        withContext(Dispatchers.Main) {
-                                            if (cleanedTitle != _currentTrackName.value) {
-                                                _currentTrackName.value = cleanedTitle
-                                                fetchTrackArtwork(cleanedTitle)
-                                            }
-                                        }
-                                    }
-                                }
+                                _currentTrackName.value = "Canlı Yayın"
+                                startService()
+                                startLiveMetadataMonitoring(streamUrl)
                             }
                             Player.STATE_ENDED -> {
                                 _isBuffering.value = false
                                 _isPlaying.value = false
+                                stopService()
                                 handleReconnect()
                             }
                         }
@@ -317,34 +344,64 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                     override fun onPlayerError(error: PlaybackException) {
                         _isBuffering.value = false
                         _isPlaying.value = false
+                        stopService()
                         handleReconnect()
                     }
 
-                    // Listen directly to standard ExoPlayer/Media3 metadata events for sub-second, instant updates on song change!
                     override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
                         val title = mediaMetadata.title?.toString()
-                        if (!title.isNullOrEmpty() && title != "Yükleniyor...") {
-                            val cleaned = cleanTrackName(title)
-                            if (cleaned != _currentTrackName.value) {
-                                _currentTrackName.value = cleaned
-                                fetchTrackArtwork(cleaned)
-                            }
+                        if (!title.isNullOrEmpty() && title != "Yükleniyor..." && title != "Canlı Yayın") {
+                            updateTrackNameAndFetchArtwork(title)
                         }
                     }
 
-                    // Decode ICY metadata packets directly from the demuxer stream instantly
                     override fun onMetadata(metadata: androidx.media3.common.Metadata) {
                         for (i in 0 until metadata.length()) {
                             val entry = metadata.get(i)
                             if (entry is androidx.media3.extractor.metadata.icy.IcyInfo) {
                                 val title = entry.title
                                 if (!title.isNullOrEmpty()) {
-                                    val cleaned = cleanTrackName(title)
-                                    viewModelScope.launch(Dispatchers.Main) {
-                                        if (cleaned != _currentTrackName.value) {
-                                            _currentTrackName.value = cleaned
-                                            fetchTrackArtwork(cleaned)
+                                    updateTrackNameAndFetchArtwork(title)
+                                }
+                            }
+                        }
+                    }
+
+                    override fun onTracksChanged(tracks: Tracks) {
+                        for (group in tracks.groups) {
+                            if (group.type == C.TRACK_TYPE_AUDIO) {
+                                for (i in 0 until group.length) {
+                                    if (group.isTrackSelected(i)) {
+                                        val format = group.getTrackFormat(i)
+                                        val bps = format.bitrate
+                                        if (bps > 0 && bps != androidx.media3.common.Format.NO_VALUE) {
+                                            val kbps = bps / 1000
+                                            _streamBitrate.value = "$kbps kbps"
+                                        } else {
+                                            val urlLower = streamUrl.lowercase()
+                                            val bitrateVal = when {
+                                                urlLower.contains("powerturk") -> "280 kbps"
+                                                urlLower.contains("kesintisizyayin") || urlLower.contains("karnaval") -> "96 kbps"
+                                                else -> "128 kbps"
+                                            }
+                                            _streamBitrate.value = bitrateVal
                                         }
+                                        val mime = format.sampleMimeType
+                                        val codec = when {
+                                            mime != null && (mime.contains("aac") || mime.contains("mp4a")) -> "AAC"
+                                            mime != null && (mime.contains("mpeg") || mime.contains("mp3")) -> "MP3"
+                                            mime != null && (mime.contains("ogg") || mime.contains("opus") || mime.contains("vorbis")) -> "OGG"
+                                            else -> {
+                                                val urlLower = streamUrl.lowercase()
+                                                val defaultCodec = when {
+                                                    urlLower.contains(".m3u8") || urlLower.contains("aac") || urlLower.contains(".aac") || urlLower.contains("mp4") -> "AAC"
+                                                    urlLower.contains("ogg") || urlLower.contains("opus") -> "OGG"
+                                                    else -> "MP3"
+                                                }
+                                                defaultCodec
+                                            }
+                                        }
+                                        _streamCodec.value = codec
                                     }
                                 }
                             }
@@ -358,7 +415,6 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                 player.playWhenReady = true
                 
                 exoPlayer = player
-                startLiveMetadataMonitoring(streamUrl)
             } catch (e: Exception) {
                 _isBuffering.value = false
                 _isPlaying.value = false
@@ -384,6 +440,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     private fun pausePlayback() {
         exoPlayer?.pause()
         _isPlaying.value = false
+        stopService()
         liveMetadataJob?.cancel()
         liveMetadataJob = null
     }
@@ -391,6 +448,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     private fun releaseMediaPlayer() {
         reconnectJob?.cancel()
         reconnectJob = null
+        stopService()
         liveMetadataJob?.cancel()
         liveMetadataJob = null
         exoPlayer?.let {
@@ -458,54 +516,19 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         _sleepTimerPreset.value = -1
     }
 
-    // Real-time ICY Metadata Monitor (Polls the stream connection safely in background while playing)
-    private fun startLiveMetadataMonitoring(streamUrl: String) {
-        liveMetadataJob?.cancel()
-        liveMetadataJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            // Instant initial fetch on start so the song name appears immediately (even while buffering!)
-            try {
-                val streamTitle = fetchIcyStreamTitle(streamUrl)
-                if (!streamTitle.isNullOrEmpty()) {
-                    val cleanedTitle = cleanTrackName(streamTitle)
-                    if (cleanedTitle != _currentTrackName.value) {
-                        withContext(Dispatchers.Main) {
-                            _currentTrackName.value = cleanedTitle
-                            fetchTrackArtwork(cleanedTitle)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                // Silent fallback
-            }
-
-            while (true) {
-                delay(35000) // Poll every 35 seconds (safe fallback) to prevent stream disconnection/anti-flood blocks
-                if (_isPlaying.value) {
-                    val streamTitle = fetchIcyStreamTitle(streamUrl)
-                    if (!streamTitle.isNullOrEmpty()) {
-                        val cleanedTitle = cleanTrackName(streamTitle)
-                        if (cleanedTitle != _currentTrackName.value) {
-                            withContext(Dispatchers.Main) {
-                                _currentTrackName.value = cleanedTitle
-                                fetchTrackArtwork(cleanedTitle)
-                            }
-                        }
-                    } else {
-                        // Fallback: If no metadata yet, use genre or Canlı Yayın
-                        if (_currentTrackName.value == "Yükleniyor..." || _currentTrackName.value.isEmpty()) {
-                            withContext(Dispatchers.Main) {
-                                _currentTrackName.value = _currentStation.value.genre.ifEmpty { "Canlı Yayın" }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     private fun updateTrackMetadata() {
         _currentTrackName.value = "Yükleniyor..."
         _currentTrackArtwork.value = null
+    }
+
+    private fun updateTrackNameAndFetchArtwork(title: String) {
+        val cleaned = cleanTrackName(title)
+        if (cleaned.isNotEmpty() && cleaned != "Yükleniyor..." && cleaned != "Canlı Yayın") {
+            if (cleaned != _currentTrackName.value) {
+                _currentTrackName.value = cleaned
+                fetchTrackArtwork(cleaned)
+            }
+        }
     }
 
     private fun cleanTrackName(title: String): String {
@@ -526,7 +549,6 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                 val url = java.net.URL(urlStr)
                 connection = url.openConnection() as java.net.HttpURLConnection
                 connection.setRequestProperty("Icy-MetaData", "1")
-                // Use a standard browser user agent to avoid being rejected by icecast/shoutcast servers
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36")
                 connection.connectTimeout = 4000
                 connection.readTimeout = 4000
@@ -550,7 +572,6 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                     val metaInt = metaIntStr.toIntOrNull() ?: 0
                     if (metaInt > 0) {
                         inputStream = connection.inputStream
-                        // Read first metadata chunk
                         val buffer = ByteArray(metaInt)
                         var bytesRead = 0
                         while (bytesRead < metaInt) {
@@ -592,7 +613,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun fetchTrackArtwork(trackName: String) {
-        _currentTrackArtwork.value = null // reset prior artwork during loading
+        _currentTrackArtwork.value = null
         val cleanTrack = trackName.trim()
         val ignoreList = listOf("yükleniyor", "hata", "yayın başlatılamadı", "canlı yayın", "canlı radyo", "radyo", "yayın koptu", "bağlantı hatası")
         if (cleanTrack.isEmpty() || ignoreList.any { cleanTrack.lowercase().contains(it) }) {
@@ -601,7 +622,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                val artworkUrl = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val artworkUrl = withContext(Dispatchers.IO) {
                     val encoded = java.net.URLEncoder.encode(cleanTrack, "UTF-8")
                     val urlStr = "https://itunes.apple.com/search?entity=song&limit=1&term=$encoded"
                     val connection = java.net.URL(urlStr).openConnection() as java.net.HttpURLConnection
@@ -613,7 +634,6 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                         val regex = Regex("""\"artworkUrl100\"\s*:\s*\"([^\"]+)\"""")
                         val match = regex.find(response)
                         val url100 = match?.groups?.get(1)?.value
-                        // Extract 500x500 high-res image
                         url100?.replace("100x100bb", "500x500bb")
                     }
                 }
@@ -625,6 +645,38 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 _currentTrackArtwork.value = null
                 e.printStackTrace()
+            }
+        }
+    }
+
+    private fun startLiveMetadataMonitoring(streamUrl: String) {
+        liveMetadataJob?.cancel()
+        liveMetadataJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val streamTitle = fetchIcyStreamTitle(streamUrl)
+                if (!streamTitle.isNullOrEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        updateTrackNameAndFetchArtwork(streamTitle)
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+
+            while (true) {
+                delay(35000)
+                if (_isPlaying.value) {
+                    try {
+                        val streamTitle = fetchIcyStreamTitle(streamUrl)
+                        if (!streamTitle.isNullOrEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                updateTrackNameAndFetchArtwork(streamTitle)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Ignore
+                    }
+                }
             }
         }
     }

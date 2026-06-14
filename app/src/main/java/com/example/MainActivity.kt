@@ -41,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -253,137 +255,185 @@ fun MainAppScreen(viewModel: RadioViewModel) {
     }
 
     CompositionLocalProvider(LocalThemeColors provides colors) {
-        Scaffold(
+        val currentTrackArtwork by viewModel.currentTrackArtwork.collectAsState()
+
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(SlateDarkBg),
-            containerColor = SlateDarkBg,
-            topBar = {
-                Column(
+                .background(SlateDarkBg)
+        ) {
+            // Full Screen Blurred backdrop when "Now Playing" is active
+            val backgroundSource = if (activeTab == 0) {
+                if (!currentTrackArtwork.isNullOrEmpty()) {
+                    currentTrackArtwork
+                } else if (!currentStation.logoUrl.isNullOrEmpty()) {
+                    currentStation.logoUrl
+                } else {
+                    null
+                }
+            } else {
+                null
+            }
+
+            if (!backgroundSource.isNullOrEmpty()) {
+                AsyncImage(
+                    model = backgroundSource,
+                    contentDescription = null,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(SlateCardBg) // Dynamic card background per theme mode selection
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                ) {
-                    // Header Brand Title & Dynamic Theme Selector
-                    Row(
+                        .fillMaxSize()
+                        .blur(30.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded),
+                    contentScale = ContentScale.FillBounds,
+                    alpha = 0.48f
+                )
+                // Overlay vertical gradient to anchor contrast inside theme colors
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    SlateDarkBg.copy(alpha = 0.12f),
+                                    SlateDarkBg.copy(alpha = 0.30f),
+                                    SlateDarkBg.copy(alpha = 0.78f)
+                                )
+                            )
+                        )
+                )
+            }
+
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = Color.Transparent, // transparent scaffold so root background shows through!
+                topBar = {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .background(if (activeTab == 0) Color.Transparent else SlateCardBg) // Transparent for Now Playing tab!
+                            .windowInsetsPadding(WindowInsets.statusBars)
                     ) {
-                        Text(
-                            text = "NHH RADIO",
-                            color = AmberPrimary, // Dynamic theme primary color
-                            fontSize = 26.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontFamily = FontFamily.SansSerif,
-                            letterSpacing = 1.sp,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-
+                        // Header Brand Title & Dynamic Theme Selector
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 0.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Single looping theme selector! (Cycles through all 7 styles: 0 to 6)
-                            val themeIcon = when (themeMode) {
-                                0 -> "🌌" // Cosmic Slate (Default)
-                                1 -> "☀️" // Light
-                                2 -> "🌑" // OLED Black
-                                3 -> "🌅" // Sunset Amber
-                                4 -> "🌲" // Forest Moss
-                                5 -> "🔮" // Cyberpunk Neon
-                                6 -> "❄️" // Nordic Glacier
-                                else -> "🌌"
-                            }
-                            IconButton(
-                                onClick = {
-                                    val nextMode = (themeMode + 1) % 7
-                                    viewModel.setThemeMode(nextMode)
-                                },
-                                modifier = Modifier.size(36.dp)
+                            Text(
+                                text = "NHH RADIO",
+                                color = AmberPrimary, // Dynamic theme primary color
+                                fontSize = 23.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontFamily = FontFamily.SansSerif,
+                                letterSpacing = 1.sp,
+                                modifier = Modifier.padding(top = 2.dp, bottom = 0.dp)
+                            )
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = themeIcon,
-                                    fontSize = 16.sp
-                                )
-                            }
-                        }
-                    }
-
-                    // Navigation Tabs
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(SlateCardBg), // Dynamic themed background
-                        contentAlignment = Alignment.Center
-                    ) {
-                        TabRow(
-                            selectedTabIndex = activeTab,
-                            containerColor = SlateCardBg, // Dynamic card background
-                            contentColor = AmberPrimary,
-                            indicator = { tabPositions ->
-                                TabRowDefaults.SecondaryIndicator(
-                                    modifier = Modifier.tabIndicatorOffset(tabPositions[activeTab]),
-                                    color = AmberPrimary,
-                                    height = 3.dp
-                                )
-                            },
-                            divider = {},
-                            modifier = Modifier.width(320.dp)
-                        ) {
-                            tabs.forEachIndexed { index, title ->
-                                Tab(
-                                    selected = activeTab == index,
-                                    onClick = { activeTab = index },
-                                    text = {
-                                        Text(
-                                            text = title,
-                                            fontSize = 14.sp,
-                                            fontWeight = if (activeTab == index) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (activeTab == index) TextPrimary else TextSecondary,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            overflow = TextOverflow.Visible
-                                        )
+                                // Single looping theme selector! (Cycles through all 7 styles: 0 to 6)
+                                val themeIcon = when (themeMode) {
+                                    0 -> "🌌" // Cosmic Slate (Default)
+                                    1 -> "☀️" // Light
+                                    2 -> "🌑" // OLED Black
+                                    3 -> "🌅" // Sunset Amber
+                                    4 -> "🌲" // Forest Moss
+                                    5 -> "🔮" // Cyberpunk Neon
+                                    6 -> "❄️" // Nordic Glacier
+                                    else -> "🌌"
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val nextMode = (themeMode + 1) % 7
+                                        viewModel.setThemeMode(nextMode)
                                     },
-                                    modifier = Modifier.testTag("tab_$index")
-                                )
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Text(
+                                        text = themeIcon,
+                                        fontSize = 16.sp
+                                    )
+                                }
                             }
                         }
-                    }
-                    HorizontalDivider(color = SlateCardBorder, thickness = 1.dp) // Dynamic theme border
-                }
-            },
-            bottomBar = {
-                if (activeTab != 0) {
-                    CompactPersistentPlayer(
-                        viewModel = viewModel,
-                        onNavigateToPlayer = { activeTab = 0 }
-                    )
-                }
-            }
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            ) {
-                when (activeTab) {
-                    0 -> NowPlayingScreen(viewModel = viewModel)
-                    1 -> RadiosScreen(viewModel = viewModel)
-                    2 -> FavoritesScreen(viewModel = viewModel)
-                }
-            }
-        }
 
-        if (showSheetDialog) {
-            GoogleSheetConfigDialog(
-                viewModel = viewModel,
-                onDismiss = { showSheetDialog = false }
-            )
+                        // Navigation Tabs
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(if (activeTab == 0) Color.Transparent else SlateCardBg), // Dynamic themed background or transparent
+                            contentAlignment = Alignment.Center
+                        ) {
+                            TabRow(
+                                selectedTabIndex = activeTab,
+                                containerColor = if (activeTab == 0) Color.Transparent else SlateCardBg, // Dynamic card background or transparent
+                                contentColor = AmberPrimary,
+                                indicator = { tabPositions ->
+                                    TabRowDefaults.SecondaryIndicator(
+                                        modifier = Modifier.tabIndicatorOffset(tabPositions[activeTab]),
+                                        color = AmberPrimary,
+                                        height = 3.dp
+                                    )
+                                },
+                                divider = {},
+                                modifier = Modifier.width(320.dp)
+                            ) {
+                                tabs.forEachIndexed { index, title ->
+                                    Tab(
+                                        selected = activeTab == index,
+                                        onClick = { activeTab = index },
+                                        text = {
+                                            Text(
+                                                text = title,
+                                                fontSize = 14.sp,
+                                                fontWeight = if (activeTab == index) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (activeTab == index) TextPrimary else TextSecondary,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Visible
+                                            )
+                                        },
+                                        modifier = Modifier.testTag("tab_$index")
+                                    )
+                                }
+                            }
+                        }
+                        HorizontalDivider(
+                            color = if (activeTab == 0) Color.White.copy(alpha = 0.12f) else SlateCardBorder,
+                            thickness = 1.dp
+                        ) // Dynamic theme border
+                    }
+                },
+                bottomBar = {
+                    if (activeTab != 0) {
+                        CompactPersistentPlayer(
+                            viewModel = viewModel,
+                            onNavigateToPlayer = { activeTab = 0 }
+                        )
+                    }
+                }
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    when (activeTab) {
+                        0 -> NowPlayingScreen(viewModel = viewModel)
+                        1 -> RadiosScreen(viewModel = viewModel, onStationSelected = { activeTab = 0 })
+                        2 -> FavoritesScreen(viewModel = viewModel, onStationSelected = { activeTab = 0 })
+                    }
+                }
+            }
+
+            if (showSheetDialog) {
+                GoogleSheetConfigDialog(
+                    viewModel = viewModel,
+                    onDismiss = { showSheetDialog = false }
+                )
+            }
         }
     }
 }
@@ -422,309 +472,348 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
     // Volume States
     val volumePercent by viewModel.systemVolume.collectAsState()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .navigationBarsPadding() // Fixed overlapping under system navigation elements
-            .padding(horizontal = 24.dp)
-            .padding(bottom = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
-        Spacer(modifier = Modifier.weight(1.2f))
-
-        // Group the Artwork and text block together to keep them tightly grouped and beautifully near
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            // Center Album Artwork box (scales dynamically to fit the width with minimal margins!)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.83f)
-                    .aspectRatio(1f)
-                    .padding(vertical = 4.dp)
-                    .shadow(16.dp, shape = RoundedCornerShape(24.dp), ambientColor = Color(currentStation.gradientStart))
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                Color(currentStation.gradientStart),
-                                Color(currentStation.gradientEnd)
-                            )
-                        )
-                    )
-                    .border(1.5.dp, SlateCardBorder, RoundedCornerShape(24.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!currentTrackArtwork.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = currentTrackArtwork,
-                        contentDescription = currentTrackName,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(24.dp)),
-                        contentScale = ContentScale.Fit
-                    )
-                } else if (!currentStation.logoUrl.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = currentStation.logoUrl,
-                        contentDescription = currentStation.name,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(24.dp)),
-                        contentScale = ContentScale.Fit
-                    )
-                } else {
-                    // Modern live music wave visualizer placeholder when artwork is empty/loading
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(88.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.08f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.MusicNote,
-                                contentDescription = "Canlı Yayın Müzik Notası",
-                                tint = AmberPrimary,
-                                modifier = Modifier.size(44.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(18.dp))
-                        Text(
-                            text = currentStation.initials,
-                            fontSize = 34.sp,
-                            fontWeight = FontWeight.Black,
-                            color = TextPrimary,
-                            letterSpacing = 2.sp
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "CANLI YAYIN",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = EmeraldAccent.copy(alpha = 0.85f),
-                            letterSpacing = 1.5.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            // Info Details Block (Station Name & Song Title)
-            Text(
-                text = currentStation.name,
-                fontSize = 29.sp, // Reduced by 2pt/sp as requested
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = currentTrackName,
-                fontSize = 18.sp,
-                color = AmberPrimary,
-                maxLines = 1,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .basicMarquee()
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = if (streamBitrate.isNullOrEmpty()) "128 kbps" else streamBitrate!!.lowercase(),
-                fontSize = 11.sp,
-                color = TextSecondary.copy(alpha = 0.6f),
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
-            )
-        }
-
-        Spacer(modifier = Modifier.height(28.dp)) // Pull play controllers slightly further down as requested
-
-        // Playback Controller Buttons Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = { viewModel.previousStation() },
-                modifier = Modifier
-                    .size(54.dp)
-                    .testTag("prev_station_btn")
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.SkipPrevious,
-                    contentDescription = "Önceki Radyo",
-                    tint = TextPrimary,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(28.dp))
-
-            Box(
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(CircleShape)
-                    .background(AmberPrimary) // AmberPrimary is modern Lavender (#D0BCFF)
-                    .clickable { viewModel.togglePlayback() }
-                    .testTag("play_pause_btn"),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isBuffering) {
-                    CircularProgressIndicator(
-                        color = Color(0xFF381E72),
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(32.dp)
-                    )
-                } else {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = "Oynat Durdur",
-                        tint = Color(0xFF381E72), // Beautiful contrast indigo as specified in design HTML
-                        modifier = Modifier.size(38.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(28.dp))
-
-            IconButton(
-                onClick = { viewModel.nextStation() },
-                modifier = Modifier
-                    .size(54.dp)
-                    .testTag("next_station_btn")
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.SkipNext,
-                    contentDescription = "Sonraki Radyo",
-                    tint = TextPrimary,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.weight(1.0f)) // Pulled up appropriately as requested
-
-        // Combined Row: Sleep Timer, Volume custom slider with speaker indicator, and Favorite heart on the same level/row!
-        Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .fillMaxSize()
+                .navigationBarsPadding() // Fixed overlapping under system navigation elements
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Heart Favorites Button (Left side of same level)
-            IconButton(
-                onClick = { viewModel.toggleFavorite(currentStation.id) },
-                modifier = Modifier
-                    .size(40.dp)
-                    .testTag("nowplay_fav_btn")
-            ) {
-                Icon(
-                    imageVector = if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = "Favoriye Ekle",
-                    tint = if (isFav) RedFavorite else TextPrimary.copy(alpha = 0.85f),
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            // Fixed elegant vertical margin between Album art and navigation Tab bar
+            Spacer(modifier = Modifier.height(26.dp))
 
-            // Volume Speaker Icon
-            Icon(
-                imageVector = if (volumePercent == 0) Icons.Filled.VolumeMute else Icons.Filled.VolumeUp,
-                contentDescription = "Ses Düzeyi",
-                tint = if (volumePercent == 0) TextMuted else TextSecondary,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clickable {
-                        if (volumePercent > 0) {
-                            viewModel.setSystemVolumePercentage(0)
-                        } else {
-                            viewModel.setSystemVolumePercentage(40)
+            // Group the Artwork and text block together to keep them tightly grouped and beautifully near
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Center Album Artwork box (scales dynamically to fit the width with minimal margins!)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.83f)
+                        .aspectRatio(1f)
+                        .padding(vertical = 4.dp)
+                        .shadow(16.dp, shape = RoundedCornerShape(24.dp), ambientColor = Color(currentStation.gradientStart))
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    Color(currentStation.gradientStart),
+                                    Color(currentStation.gradientEnd)
+                                )
+                            )
+                        )
+                        .border(1.5.dp, SlateCardBorder, RoundedCornerShape(24.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!currentTrackArtwork.isNullOrEmpty()) {
+                        AsyncImage(
+                            model = currentTrackArtwork,
+                            contentDescription = currentTrackName,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(24.dp)),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else if (!currentStation.logoUrl.isNullOrEmpty()) {
+                        AsyncImage(
+                            model = currentStation.logoUrl,
+                            contentDescription = currentStation.name,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(24.dp)),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        // Modern live music wave visualizer placeholder when artwork is empty/loading
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(88.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.08f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.MusicNote,
+                                    contentDescription = "Canlı Yayın Müzik Notası",
+                                    tint = AmberPrimary,
+                                    modifier = Modifier.size(44.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(18.dp))
+                            Text(
+                                text = currentStation.initials,
+                                fontSize = 34.sp,
+                                fontWeight = FontWeight.Black,
+                                color = TextPrimary,
+                                letterSpacing = 2.sp
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "CANLI YAYIN",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = EmeraldAccent.copy(alpha = 0.85f),
+                                letterSpacing = 1.5.sp
+                            )
                         }
                     }
-            )
-
-            // Volume Slider
-            ThinVolumeSlider(
-                value = volumePercent.toFloat(),
-                onValueChange = { viewModel.setSystemVolumePercentage(it.toInt()) },
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("volume_slider"),
-                activeColor = AmberPrimary,
-                inactiveColor = SlateCardBorder
-            )
-
-            // Volume Percentage text
-            Text(
-                text = "$volumePercent%",
-                color = AmberPrimary,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.width(34.dp),
-                textAlign = TextAlign.End
-            )
-
-            // Custom Sleep Timer Button / Running Countdown (Right side of same level)
-            if (!sleepActive) {
-                IconButton(
-                    onClick = { showSleepDialog = true },
-                    modifier = Modifier
-                        .size(40.dp)
-                        .testTag("nowplay_sleep_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Alarm,
-                        contentDescription = "Uyku Kapanışı",
-                        tint = TextPrimary.copy(alpha = 0.85f),
-                        modifier = Modifier.size(24.dp)
-                    )
                 }
-            } else {
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Info Details Block (Station Name & Song Title)
+                Text(
+                    text = currentStation.name,
+                    fontSize = 29.sp, // Reduced by 2pt/sp as requested
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = currentTrackName,
+                    fontSize = 18.sp,
+                    color = AmberPrimary,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .basicMarquee()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Favorite and Sleep Timer placed to the left and right of bitrate info
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SlateCardBg.copy(alpha = 0.35f))
-                        .clickable { showSleepDialog = true }
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
-                        .testTag("nowplay_sleep_btn"),
+                        .fillMaxWidth(0.92f)
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Inline Favorite Heart Button (Left support)
+                    IconButton(
+                        onClick = { viewModel.toggleFavorite(currentStation.id) },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("nowplay_fav_btn")
+                    ) {
+                        Icon(
+                            imageVector = if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            contentDescription = "Favoriye Ekle",
+                            tint = if (isFav) RedFavorite else TextPrimary.copy(alpha = 0.85f),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(18.dp))
+
+                    // Center Details: Bitrate and Codec (with minimal space layout config)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy((-4).dp),
+                        modifier = Modifier.widthIn(min = 100.dp)
+                    ) {
+                        Text(
+                            text = if (streamBitrate.isNullOrEmpty()) "128 kbps" else streamBitrate!!.lowercase(),
+                            fontSize = 12.sp,
+                            color = TextSecondary.copy(alpha = 0.75f),
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp,
+                            style = androidx.compose.ui.text.TextStyle(
+                                platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                    includeFontPadding = false
+                                )
+                            )
+                        )
+                        if (!streamCodec.isNullOrEmpty()) {
+                            Text(
+                                text = streamCodec!!.uppercase(),
+                                fontSize = 9.sp,
+                                color = TextSecondary.copy(alpha = 0.45f),
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp,
+                                style = androidx.compose.ui.text.TextStyle(
+                                    platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                        includeFontPadding = false
+                                    )
+                                )
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(18.dp))
+
+                    // Inline Sleep Timer timer (Right Support)
+                    if (!sleepActive) {
+                        IconButton(
+                            onClick = { showSleepDialog = true },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("nowplay_sleep_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Alarm,
+                                contentDescription = "Uyku Kapanışı",
+                                tint = TextPrimary.copy(alpha = 0.85f),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    } else {
+                        // Countdown active: hide alarm clock / timer icon completely! Only show countdown duration text
+                        Box(
+                            modifier = Modifier
+                                .height(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(SlateCardBg.copy(alpha = 0.6f))
+                                .clickable { showSleepDialog = true }
+                                .padding(horizontal = 8.dp)
+                                .testTag("nowplay_sleep_btn"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = String.format("%02d:%02d", sleepMin, sleepSec),
+                                fontSize = 11.sp,
+                                color = EmeraldAccent,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(2.dp)) // Pull play controllers slightly up as requested
+
+            // Playback Controller Buttons Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { viewModel.previousStation() },
+                    modifier = Modifier
+                        .size(54.dp)
+                        .testTag("prev_station_btn")
+                ) {
                     Icon(
-                        imageVector = Icons.Filled.Alarm,
-                        contentDescription = "Uyku Kapanışı",
-                        tint = EmeraldAccent,
-                        modifier = Modifier.size(14.dp)
+                        imageVector = Icons.Filled.SkipPrevious,
+                        contentDescription = "Önceki Radyo",
+                        tint = TextPrimary,
+                        modifier = Modifier.size(36.dp)
                     )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = String.format("%02d:%02d", sleepMin, sleepSec),
-                        fontSize = 10.sp,
-                        color = EmeraldAccent,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1
+                }
+
+                Spacer(modifier = Modifier.width(28.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(68.dp)
+                        .clip(CircleShape)
+                        .background(AmberPrimary) // AmberPrimary is modern Lavender theme color
+                        .clickable { viewModel.togglePlayback() }
+                        .testTag("play_pause_btn"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isBuffering) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF381E72),
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = "Oynat Durdur",
+                            tint = Color(0xFF381E72), // Beautiful contrast indigo as specified in design HTML
+                            modifier = Modifier.size(38.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(28.dp))
+
+                IconButton(
+                    onClick = { viewModel.nextStation() },
+                    modifier = Modifier
+                        .size(54.dp)
+                        .testTag("next_station_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SkipNext,
+                        contentDescription = "Sonraki Radyo",
+                        tint = TextPrimary,
+                        modifier = Modifier.size(36.dp)
                     )
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.weight(1.0f)) // Pulled up appropriately as requested
+
+            // Volume Row: occupies full row width cleanly
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Volume Speaker Icon
+                Icon(
+                    imageVector = if (volumePercent == 0) Icons.Filled.VolumeMute else Icons.Filled.VolumeUp,
+                    contentDescription = "Ses Düzeyi",
+                    tint = if (volumePercent == 0) TextMuted else TextSecondary,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clickable {
+                            if (volumePercent > 0) {
+                                viewModel.setSystemVolumePercentage(0)
+                            } else {
+                                viewModel.setSystemVolumePercentage(40)
+                            }
+                        }
+                )
+
+                // Volume Slider
+                ThinVolumeSlider(
+                    value = volumePercent.toFloat(),
+                    onValueChange = { viewModel.setSystemVolumePercentage(it.toInt()) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("volume_slider"),
+                    activeColor = AmberPrimary,
+                    inactiveColor = SlateCardBorder
+                )
+
+                // Volume Percentage text
+                Text(
+                    text = "$volumePercent%",
+                    color = AmberPrimary,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.width(34.dp),
+                    textAlign = TextAlign.End
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+        }
     }
 
     // Alarm Clock Timer Control Dialog Drawer
@@ -737,7 +826,7 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
 }
 
 @Composable
-fun RadiosScreen(viewModel: RadioViewModel) {
+fun RadiosScreen(viewModel: RadioViewModel, onStationSelected: () -> Unit) {
     val colors = LocalThemeColors.current
     val SlateDarkBg = colors.bg
     val SlateCardBg = colors.cardBg
@@ -858,7 +947,10 @@ fun RadiosScreen(viewModel: RadioViewModel) {
                             isFavorite = isFav,
                             isCurrent = (station.id == currentStation.id),
                             currentTrackName = currentTrackName,
-                            onSelect = { viewModel.selectStation(station) },
+                            onSelect = {
+                                viewModel.selectStation(station)
+                                onStationSelected()
+                            },
                             onFavorite = { viewModel.toggleFavorite(station.id) }
                         )
                     }
@@ -869,7 +961,7 @@ fun RadiosScreen(viewModel: RadioViewModel) {
 }
 
 @Composable
-fun FavoritesScreen(viewModel: RadioViewModel) {
+fun FavoritesScreen(viewModel: RadioViewModel, onStationSelected: () -> Unit) {
     val colors = LocalThemeColors.current
     val SlateDarkBg = colors.bg
     val SlateCardBg = colors.cardBg
@@ -933,7 +1025,10 @@ fun FavoritesScreen(viewModel: RadioViewModel) {
                     isFavorite = true,
                     isCurrent = (station.id == currentStation.id),
                     currentTrackName = currentTrackName,
-                    onSelect = { viewModel.selectStation(station) },
+                    onSelect = {
+                        viewModel.selectStation(station)
+                        onStationSelected()
+                    },
                     onFavorite = { viewModel.toggleFavorite(station.id) }
                 )
             }
