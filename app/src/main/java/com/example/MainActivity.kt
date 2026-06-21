@@ -552,57 +552,19 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Parse track artist and song names coming from the live metadata stream
-                val trackParts = currentTrackName.split(" - ").map { it.trim() }
-                val (songTitle, artistName) = if (trackParts.size >= 2) {
-                    Pair(trackParts.subList(1, trackParts.size).joinToString(" - "), trackParts[0])
-                } else {
-                    if (currentTrackName == "Canlı Yayın" || currentTrackName == "Yükleniyor..." || currentTrackName.isEmpty()) {
-                        Pair("", currentTrackName)
-                    } else {
-                        Pair("", currentTrackName)
-                    }
-                }
-
-                if (songTitle.isNotEmpty()) {
-                    Text(
-                        text = songTitle,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = artistName,
-                        fontSize = 15.sp,
-                        color = AmberPrimary,
-                        maxLines = 1,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp)
-                            .basicMarquee()
-                    )
-                } else {
-                    // Falls back to direct live stream label if no division is parsed
-                    val statusText = if (artistName.isEmpty()) "Canlı Yayın" else artistName
-                    Text(
-                        text = statusText,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AmberPrimary,
-                        maxLines = 1,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp)
-                            .basicMarquee()
-                    )
-                }
+                // Display track artist and song names in a single streamlined row (e.g., Tarkan - Şımarık) with auto-marquee scrolling
+                val displayText = if (currentTrackName.isEmpty()) "Canlı Yayın" else currentTrackName
+                Text(
+                    text = displayText,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AmberPrimary,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .padding(horizontal = 20.dp)
+                        .basicMarquee()
+                )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -1527,20 +1489,20 @@ fun ThinVolumeSlider(
                 },
             contentAlignment = Alignment.CenterStart
         ) {
-            // Background track (thicker now, e.g. 7.dp)
+            // Background track set to exactly 6.dp thickness
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(7.dp)
-                    .clip(RoundedCornerShape(3.5.dp))
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
                     .background(inactiveColor)
             ) {
-                // Active track
+                // Active track set to exactly 6.dp thickness
                 val fraction = progressPercent / 99f
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(fraction)
-                        .height(7.dp)
+                        .height(6.dp)
                         .background(activeColor)
                 )
             }
