@@ -29,6 +29,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
+enum class PlaybackSource {
+    RADIOS_LIST,
+    FAVORITES_LIST
+}
+
 class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
     private val sharedPrefs: SharedPreferences =
@@ -124,6 +129,13 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     private val _streamBitrate = MutableStateFlow<String?>(null)
     val streamBitrate: StateFlow<String?> = _streamBitrate.asStateFlow()
 
+    // Tracking for list context (All/Filtered Radios vs Favorites list) playing next/previous
+    private val _currentSource = MutableStateFlow(PlaybackSource.RADIOS_LIST)
+    val currentSource: StateFlow<PlaybackSource> = _currentSource.asStateFlow()
+
+    // Battery / network saving RAM cache for resolved iTunes metadata artwork searching
+    private val artworkCache = java.util.concurrent.ConcurrentHashMap<String, String?>()
+
     // Private Player fields
     private var exoPlayer: ExoPlayer? = null
     private var sleepTimerJob: Job? = null
@@ -186,7 +198,8 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Start/Stop/Switch Stream Playback
-    fun selectStation(station: RadioStation) {
+    fun selectStation(station: RadioStation, source: PlaybackSource = PlaybackSource.RADIOS_LIST) {
+        _currentSource.value = source
         reconnectAttempts = 0
         reconnectJob?.cancel()
         if (_currentStation.value.id == station.id && exoPlayer != null) {
@@ -200,19 +213,37 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun nextStation() {
-        val currentList = getFilteredOrAllStations()
+        val currentList = when (_currentSource.value) {
+            PlaybackSource.FAVORITES_LIST -> {
+                val favSet = _favorites.value
+                val list = _stations.value.filter { favSet.contains(it.id) }
+                if (list.isEmpty()) getFilteredOrAllStations() else list
+            }
+            PlaybackSource.RADIOS_LIST -> {
+                getFilteredOrAllStations()
+            }
+        }
         if (currentList.isEmpty()) return
         val currentIndex = currentList.indexOfFirst { it.id == _currentStation.value.id }
         val nextIndex = if (currentIndex == -1 || currentIndex == currentList.size - 1) 0 else currentIndex + 1
-        selectStation(currentList[nextIndex])
+        selectStation(currentList[nextIndex], _currentSource.value)
     }
 
     fun previousStation() {
-        val currentList = getFilteredOrAllStations()
+        val currentList = when (_currentSource.value) {
+            PlaybackSource.FAVORITES_LIST -> {
+                val favSet = _favorites.value
+                val list = _stations.value.filter { favSet.contains(it.id) }
+                if (list.isEmpty()) getFilteredOrAllStations() else list
+            }
+            PlaybackSource.RADIOS_LIST -> {
+                getFilteredOrAllStations()
+            }
+        }
         if (currentList.isEmpty()) return
         val currentIndex = currentList.indexOfFirst { it.id == _currentStation.value.id }
         val prevIndex = if (currentIndex <= 0) currentList.size - 1 else currentIndex - 1
-        selectStation(currentList[prevIndex])
+        selectStation(currentList[prevIndex], _currentSource.value)
     }
 
     private fun getFilteredOrAllStations(): List<RadioStation> {
@@ -730,20 +761,26 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun searchITunesArtwork(searchTerm: String): String? {
+        val trimmed = searchTerm.trim()
+        if (artworkCache.containsKey(trimmed)) {
+            return artworkCache[trimmed]
+        }
         return try {
-            val encoded = java.net.URLEncoder.encode(searchTerm, "UTF-8")
+            val encoded = java.net.URLEncoder.encode(trimmed, "UTF-8")
             val urlStr = "https://itunes.apple.com/search?entity=song&limit=1&term=$encoded"
             val connection = java.net.URL(urlStr).openConnection() as java.net.HttpURLConnection
             connection.requestMethod = "GET"
             connection.connectTimeout = 4000
             connection.readTimeout = 4000
-            connection.inputStream.use { stream ->
+            val result = connection.inputStream.use { stream ->
                 val response = stream.bufferedReader().use { it.readText() }
                 val regex = Regex("""\"artworkUrl100\"\s*:\s*\"([^\"]+)\"""")
                 val match = regex.find(response)
                 val url100 = match?.groups?.get(1)?.value
                 url100?.replace("100x100bb", "500x500bb")
             }
+            artworkCache[trimmed] = result
+            result
         } catch (e: Exception) {
             null
         }

@@ -48,6 +48,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
+import com.example.ui.PlaybackSource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -973,7 +976,7 @@ fun RadiosScreen(
                             isCurrent = (station.id == currentStation.id),
                             currentTrackName = currentTrackName,
                             onSelect = {
-                                viewModel.selectStation(station)
+                                viewModel.selectStation(station, PlaybackSource.RADIOS_LIST)
                                 onStationSelected()
                             },
                             onFavorite = { viewModel.toggleFavorite(station.id) }
@@ -1079,7 +1082,7 @@ fun FavoritesScreen(
                         isCurrent = (station.id == currentStation.id),
                         currentTrackName = currentTrackName,
                         onSelect = {
-                            viewModel.selectStation(station)
+                            viewModel.selectStation(station, PlaybackSource.FAVORITES_LIST)
                             onStationSelected()
                         },
                         onFavorite = { viewModel.toggleFavorite(station.id) }
@@ -1189,59 +1192,7 @@ fun RadioItemRow(
     }
 }
 
-@Composable
-fun AnimatedEqualizer(isPlaying: Boolean, modifier: Modifier = Modifier) {
-    val colors = LocalThemeColors.current
-    val SlateDarkBg = colors.bg
-    val SlateCardBg = colors.cardBg
-    val SlateCardBorder = colors.cardBorder
-    val TextPrimary = colors.textPrimary
-    val TextSecondary = colors.textSecondary
-    val TextMuted = colors.textMuted
-    val AmberPrimary = colors.primary
-    val AmberSecondary = colors.secondary
-    val EmeraldAccent = colors.accent
-    val RedFavorite = colors.redFav
 
-    val barCount = 5
-    val infiniteTransition = rememberInfiniteTransition()
-    
-    Row(
-        modifier = modifier
-            .width(60.dp)
-            .height(28.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        for (i in 0 until barCount) {
-            val duration = remember(i) { (400 + i * 150) }
-            val heightFraction by if (isPlaying) {
-                infiniteTransition.animateFloat(
-                    initialValue = 0.15f,
-                    targetValue = 0.95f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(duration, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse
-                    )
-                )
-            } else {
-                remember { mutableStateOf(0.15f) }
-            }
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(heightFraction)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(AmberSecondary, EmeraldAccent)
-                        )
-                    )
-            )
-        }
-    }
-}
 
 @Composable
 fun CompactPersistentPlayer(
