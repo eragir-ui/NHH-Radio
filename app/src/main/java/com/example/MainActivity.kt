@@ -425,9 +425,20 @@ fun MainAppScreen(viewModel: RadioViewModel) {
                         .padding(innerPadding)
                 ) {
                     when (activeTab) {
-                        0 -> NowPlayingScreen(viewModel = viewModel)
-                        1 -> RadiosScreen(viewModel = viewModel, onStationSelected = { activeTab = 0 })
-                        2 -> FavoritesScreen(viewModel = viewModel, onStationSelected = { activeTab = 0 })
+                        0 -> NowPlayingScreen(
+                            viewModel = viewModel,
+                            onSwipeToRadios = { activeTab = 1 }
+                        )
+                        1 -> RadiosScreen(
+                            viewModel = viewModel,
+                            onStationSelected = { activeTab = 0 },
+                            onSwipeToPlayer = { activeTab = 0 }
+                        )
+                        2 -> FavoritesScreen(
+                            viewModel = viewModel,
+                            onStationSelected = { activeTab = 0 },
+                            onSwipeToPlayer = { activeTab = 0 }
+                        )
                     }
                 }
             }
@@ -444,7 +455,10 @@ fun MainAppScreen(viewModel: RadioViewModel) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun NowPlayingScreen(viewModel: RadioViewModel) {
+fun NowPlayingScreen(
+    viewModel: RadioViewModel,
+    onSwipeToRadios: () -> Unit
+) {
     val colors = LocalThemeColors.current
     val SlateDarkBg = colors.bg
     val SlateCardBg = colors.cardBg
@@ -475,6 +489,8 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
 
     // Volume States
     val volumePercent by viewModel.systemVolume.collectAsState()
+
+    var dragOffset by remember { mutableStateOf(0f) }
 
     Box(
         modifier = Modifier.fillMaxSize()
@@ -511,7 +527,25 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                                 )
                             )
                         )
-                        .border(1.5.dp, SlateCardBorder, RoundedCornerShape(24.dp)),
+                        .border(1.5.dp, SlateCardBorder, RoundedCornerShape(24.dp))
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    // User swiped horizontally above the threshold
+                                    if (kotlin.math.abs(dragOffset) > 80f) {
+                                        onSwipeToRadios()
+                                    }
+                                    dragOffset = 0f
+                                },
+                                onDragCancel = {
+                                    dragOffset = 0f
+                                },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    dragOffset += dragAmount
+                                }
+                            )
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     val fallbackArtwork = if (!currentStation.logoUrl.isNullOrEmpty()) currentStation.logoUrl else ""
@@ -790,7 +824,11 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
 }
 
 @Composable
-fun RadiosScreen(viewModel: RadioViewModel, onStationSelected: () -> Unit) {
+fun RadiosScreen(
+    viewModel: RadioViewModel,
+    onStationSelected: () -> Unit,
+    onSwipeToPlayer: () -> Unit
+) {
     val colors = LocalThemeColors.current
     val SlateDarkBg = colors.bg
     val SlateCardBg = colors.cardBg
@@ -817,7 +855,30 @@ fun RadiosScreen(viewModel: RadioViewModel, onStationSelected: () -> Unit) {
         if (genreFilter == "Tümü") stations else stations.filter { it.genre == genreFilter }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    var dragOffset by remember { mutableStateOf(0f) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        // "sola kaydırınca radyolardan şimdi çalışıyora" -> Finger moves left (deltaX < 0)
+                        if (dragOffset < -80f) {
+                            onSwipeToPlayer()
+                        }
+                        dragOffset = 0f
+                    },
+                    onDragCancel = {
+                        dragOffset = 0f
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        dragOffset += dragAmount
+                    }
+                )
+            }
+    ) {
         if (isSheetLoading && stations.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -925,7 +986,11 @@ fun RadiosScreen(viewModel: RadioViewModel, onStationSelected: () -> Unit) {
 }
 
 @Composable
-fun FavoritesScreen(viewModel: RadioViewModel, onStationSelected: () -> Unit) {
+fun FavoritesScreen(
+    viewModel: RadioViewModel,
+    onStationSelected: () -> Unit,
+    onSwipeToPlayer: () -> Unit
+) {
     val colors = LocalThemeColors.current
     val SlateDarkBg = colors.bg
     val SlateCardBg = colors.cardBg
@@ -947,54 +1012,79 @@ fun FavoritesScreen(viewModel: RadioViewModel, onStationSelected: () -> Unit) {
         stations.filter { favorites.contains(it.id) }
     }
 
-    if (favoriteStations.isEmpty()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                imageVector = Icons.Filled.FavoriteBorder,
-                contentDescription = "Favori Boş",
-                tint = TextMuted,
-                modifier = Modifier.size(64.dp)
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = "Henüz Favori Radyo Eklenmedi",
-                color = TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Favorilere eklemek için listelerde kalbe dokunun.",
-                color = TextSecondary,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center
-            )
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .testTag("favorites_list")
-        ) {
-            items(favoriteStations) { station ->
-                RadioItemRow(
-                    station = station,
-                    isFavorite = true,
-                    isCurrent = (station.id == currentStation.id),
-                    currentTrackName = currentTrackName,
-                    onSelect = {
-                        viewModel.selectStation(station)
-                        onStationSelected()
+    var dragOffset by remember { mutableStateOf(0f) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        // "sola kaydırınca radyolardan şimdi çalışıyora" -> Finger moves left (deltaX < 0)
+                        if (dragOffset < -80f) {
+                            onSwipeToPlayer()
+                        }
+                        dragOffset = 0f
                     },
-                    onFavorite = { viewModel.toggleFavorite(station.id) }
+                    onDragCancel = {
+                        dragOffset = 0f
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        dragOffset += dragAmount
+                    }
                 )
+            }
+    ) {
+        if (favoriteStations.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.FavoriteBorder,
+                    contentDescription = "Favori Boş",
+                    tint = TextMuted,
+                    modifier = Modifier.size(64.dp)
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = "Henüz Favori Radyo Eklenmedi",
+                    color = TextPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Favorilere eklemek için listelerde kalbe dokunun.",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag("favorites_list")
+            ) {
+                items(favoriteStations) { station ->
+                    RadioItemRow(
+                        station = station,
+                        isFavorite = true,
+                        isCurrent = (station.id == currentStation.id),
+                        currentTrackName = currentTrackName,
+                        onSelect = {
+                            viewModel.selectStation(station)
+                            onStationSelected()
+                        },
+                        onFavorite = { viewModel.toggleFavorite(station.id) }
+                    )
+                }
             }
         }
     }
