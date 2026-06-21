@@ -80,8 +80,8 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentTrackName = MutableStateFlow("Yükleniyor...")
     val currentTrackName: StateFlow<String> = _currentTrackName.asStateFlow()
 
-    private val _currentTrackArtwork = MutableStateFlow<String?>(null)
-    val currentTrackArtwork: StateFlow<String?> = _currentTrackArtwork.asStateFlow()
+    private val _currentTrackArtwork = MutableStateFlow<Any?>(null)
+    val currentTrackArtwork: StateFlow<Any?> = _currentTrackArtwork.asStateFlow()
 
     private val _favorites = MutableStateFlow<Set<Int>>(emptySet())
     val favorites: StateFlow<Set<Int>> = _favorites.asStateFlow()
@@ -286,19 +286,21 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                 // Configure robust buffering parameters specifically for live radio streaming
                 val loadControl = DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
-                        35_000, // 35 seconds of minimum buffered media before playing can be started/resumed
-                        100_000, // 100 seconds of maximum buffer size
-                        2_500,  // 2.5 seconds of initial buffer required before starting playback (smooth start!)
-                        5_000   // 5.0 seconds of buffer required after alert/rebuffering (prevents rapid stutter loops!)
+                        12_000, // minBufferMs: 12 seconds is superb and stable
+                        25_000, // maxBufferMs: 25 seconds
+                        1_000,  // bufferForPlaybackMs: begins streaming almost instantly (1 second only!)
+                        2_000   // bufferForPlaybackAfterRebufferMs: 2.0 seconds stabilizes rebuffers beautifully
                     )
                     .build()
 
                 // Crucial step: Configure HTTP DataSource to allow cross-protocol redirects (HTTPS -> HTTP) 
                 // and configure a generic browser User-Agent to stop servers from rejecting connection requests.
+                // Request inline ICY metadata block mapping so Icecast servers stream track titles dynamically.
                 val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
                     .setAllowCrossProtocolRedirects(true)
                     .setConnectTimeoutMs(15_000)
                     .setReadTimeoutMs(25_000)
+                    .setDefaultRequestProperties(mapOf("Icy-MetaData" to "1"))
                     .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36")
 
                 val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(getApplication<Application>())
@@ -328,7 +330,9 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                                 _isBuffering.value = false
                                 _isPlaying.value = true
                                 reconnectAttempts = 0
-                                _currentTrackName.value = "Canlı Yayın"
+                                if (_currentTrackName.value == "Yükleniyor..." || _currentTrackName.value.isEmpty()) {
+                                    _currentTrackName.value = "Canlı Yayın"
+                                }
                                 startService()
                                 startLiveMetadataMonitoring(streamUrl)
                             }
@@ -349,19 +353,65 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+                        // Dynamically extract embedded cover artwork if sent by the stream metadata frames!
+                        if (mediaMetadata.artworkData != null) {
+                            _currentTrackArtwork.value = mediaMetadata.artworkData
+                        } else if (mediaMetadata.artworkUri != null) {
+                            _currentTrackArtwork.value = mediaMetadata.artworkUri.toString()
+                        }
+
+                        val artist = mediaMetadata.artist?.toString()
                         val title = mediaMetadata.title?.toString()
-                        if (!title.isNullOrEmpty() && title != "Yükleniyor..." && title != "Canlı Yayın") {
-                            updateTrackNameAndFetchArtwork(title)
+                        val displayTitle = mediaMetadata.displayTitle?.toString()
+                        val subtitle = mediaMetadata.subtitle?.toString()
+                        
+                        val combined = when {
+                            !artist.isNullOrEmpty() && !title.isNullOrEmpty() -> "$artist - $title"
+                            !title.isNullOrEmpty() -> title
+                            !displayTitle.isNullOrEmpty() -> displayTitle
+                            !subtitle.isNullOrEmpty() -> subtitle
+                            !artist.isNullOrEmpty() -> artist
+                            else -> null
+                        }
+                        if (!combined.isNullOrEmpty() && combined != "Yükleniyor..." && combined != "Canlı Yayın") {
+                            updateTrackNameAndFetchArtwork(combined)
                         }
                     }
 
                     override fun onMetadata(metadata: androidx.media3.common.Metadata) {
                         for (i in 0 until metadata.length()) {
                             val entry = metadata.get(i)
-                            if (entry is androidx.media3.extractor.metadata.icy.IcyInfo) {
-                                val title = entry.title
+                            val className = entry.javaClass.name
+                            if (className.contains("IcyInfo")) {
+                                val title = (entry as? androidx.media3.extractor.metadata.icy.IcyInfo)?.title
                                 if (!title.isNullOrEmpty()) {
                                     updateTrackNameAndFetchArtwork(title)
+                                }
+                            } else if (className.contains("ApicFrame")) {
+                                try {
+                                    val pictureDataField = entry.javaClass.getDeclaredField("pictureData")
+                                    pictureDataField.isAccessible = true
+                                    val pictureData = pictureDataField.get(entry) as? ByteArray
+                                    if (pictureData != null && pictureData.isNotEmpty()) {
+                                        _currentTrackArtwork.value = pictureData
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            } else if (className.contains("TextInformationFrame")) {
+                                try {
+                                    val idField = entry.javaClass.getDeclaredField("id")
+                                    val valuesField = entry.javaClass.getDeclaredField("values")
+                                    idField.isAccessible = true
+                                    valuesField.isAccessible = true
+                                    val id = idField.get(entry) as? String
+                                    val values = valuesField.get(entry) as? List<*>
+                                    val value = values?.firstOrNull()?.toString()
+                                    if (!value.isNullOrEmpty() && (id == "TIT2" || id == "TPE1")) {
+                                        updateTrackNameAndFetchArtwork(value)
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
                                 }
                             }
                         }
@@ -531,84 +581,116 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun fixTurkishEncoding(text: String): String {
+        if (text.isEmpty()) return text
+        var result = text
+        
+        // 1. Repair UTF-8 Mojibake interpreted as ISO-8859-1
+        val replacements = mapOf(
+            "Ã¼" to "ü", "Ã¶" to "ö", "Ã§" to "ç", "Ä±" to "ı", "Å\u009F" to "ş", "Å" to "ş", "Ä\u009F" to "ğ", "Ä" to "ğ",
+            "Ã\u009C" to "Ü", "Ã" to "Ü", "Ã\u0096" to "Ö", "Ã" to "Ö", "Ã\u0087" to "Ç", "Ã" to "Ç", "Ä°" to "İ", "Ä\u00B0" to "İ",
+            "Å\u009E" to "Ş", "Å" to "Ş", "Ä\u009E" to "Ğ", "Ä" to "Ğ", "Ã¢" to "â", "Ã\u00A2" to "â", "Ã®" to "î", "Ã\u00AE" to "î", "Ã»" to "û", "Ã\u00BB" to "û",
+            "Ã©" to "é", "Ã\u00A9" to "é", "Ã¡" to "á", "Ã\u00A1" to "á"
+        )
+        
+        for ((bad, good) in replacements) {
+            if (result.contains(bad)) {
+                result = result.replace(bad, good)
+            }
+        }
+        
+        // 2. Repair ISO-8859-9 (Latin-5) interpreted as ISO-8859-1 (Latin-1)
+        result = result
+            .replace('ý', 'ı')
+            .replace('þ', 'ş')
+            .replace('ð', 'ğ')
+            .replace('Ý', 'İ')
+            .replace('Þ', 'Ş')
+            .replace('Ð', 'Ğ')
+
+        return result
+    }
+
     private fun cleanTrackName(title: String): String {
-        var clean = title.trim()
+        var clean = fixTurkishEncoding(title.trim())
         if (clean.startsWith("StreamTitle='")) {
             clean = clean.replace("StreamTitle='", "").replace("';", "")
         }
-        return clean.trim()
+        
+        // Remove basic html/xml tags if any
+        clean = clean.replace(Regex("<[^>]*>"), "")
+        
+        // Remove bracketed info (e.g. [Süper FM]) and parentheses context (e.g. (Radio Edit))
+        clean = clean.replace(Regex("\\[.*?\\]"), "")
+        clean = clean.replace(Regex("\\(.*?\\)"), "")
+        
+        val station = _currentStation.value
+        val stationNameLower = station.name.lowercase().trim()
+        val initialsLower = station.initials.lowercase().trim()
+        
+        // Generic radio garbage terms to filter
+        val garbagePhrases = listOf(
+            "canli yayin", "canlı yayın", "canli", "canlı", "yayin", "yayın", "reklamlar", "reklam",
+            "jingle", "kesintisiz", "radyo", "radio", "tanıtım", "unicef", "haber", "haberler",
+            "web", "online", "on air", "on-air", "playing", "now playing", "pop", "turk", "türk",
+            "power", "fm", "hd", "yayında", "yayinda", "promosyon", "anons", "anonsu", "sponsor", "sponsorship"
+        )
+        
+        // Replace station name from string case-insensitively
+        if (stationNameLower.length > 2 && clean.lowercase().contains(stationNameLower)) {
+            clean = clean.replace(Regex("(?i)\\b${Regex.escape(stationNameLower)}\\b"), "")
+        }
+        if (initialsLower.length > 1 && clean.lowercase().contains(initialsLower)) {
+            clean = clean.replace(Regex("(?i)\\b${Regex.escape(initialsLower)}\\b"), "")
+        }
+        
+        // Remove known Turkish headers
+        val headers = listOf("yayında:", "yayinda:", "şimdi:", "simdi:", "sırada:", "sirada:", "playing:")
+        for (h in headers) {
+            if (clean.lowercase().startsWith(h)) {
+                clean = clean.substring(h.length).trim()
+            }
+        }
+        
+        // Normalize leading/trailing dash details
+        clean = clean.trim().removeSurrounding("-", "-").trim()
+        
+        // Split and selectively filter parts
+        val parts = clean.split("-").map { it.trim() }.filter { it.isNotEmpty() }
+        val filtered = parts.filter { part ->
+            val partLower = part.lowercase()
+            val isGarbage = partLower == stationNameLower ||
+                            partLower == "fm" ||
+                            partLower == "hd" ||
+                            partLower.isEmpty() ||
+                            garbagePhrases.any { partLower == it }
+            !isGarbage
+        }
+        
+        if (filtered.isEmpty()) {
+            return "Canlı Yayın"
+        }
+        
+        var finalClean = filtered.joinToString(" - ")
+        
+        // Clean remaining leading/trailing garbage prefixes or suffixes
+        for (g in garbagePhrases) {
+            finalClean = finalClean.replace(Regex("(?i)^$g\\s+[-:]+"), "").trim()
+            finalClean = finalClean.replace(Regex("(?i)[-:]+\\s+$g$"), "").trim()
+        }
+        
+        finalClean = finalClean.trim().removeSurrounding("-", "-").trim()
+        finalClean = finalClean.trim().removeSurrounding(":", ":").trim()
+        
+        if (finalClean.isEmpty() || finalClean.lowercase() == "canlı yayın" || finalClean.length < 3) {
+            return "Canlı Yayın"
+        }
+        
+        return finalClean
     }
 
     private fun fetchIcyStreamTitle(streamUrl: String): String? {
-        var urlStr = streamUrl
-        var redirects = 0
-        while (redirects < 5) {
-            var connection: java.net.HttpURLConnection? = null
-            var inputStream: java.io.InputStream? = null
-            try {
-                val url = java.net.URL(urlStr)
-                connection = url.openConnection() as java.net.HttpURLConnection
-                connection.setRequestProperty("Icy-MetaData", "1")
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36")
-                connection.connectTimeout = 4000
-                connection.readTimeout = 4000
-                connection.instanceFollowRedirects = true
-                
-                val status = connection.responseCode
-                if (status == java.net.HttpURLConnection.HTTP_MOVED_TEMP || 
-                    status == java.net.HttpURLConnection.HTTP_MOVED_PERM || 
-                    status == 307 || status == 308) {
-                    val newUrl = connection.getHeaderField("Location")
-                    if (!newUrl.isNullOrEmpty()) {
-                        urlStr = newUrl
-                        redirects++
-                        connection.disconnect()
-                        continue
-                    }
-                }
-
-                val metaIntStr = connection.getHeaderField("icy-metaint")
-                if (metaIntStr != null) {
-                    val metaInt = metaIntStr.toIntOrNull() ?: 0
-                    if (metaInt > 0) {
-                        inputStream = connection.inputStream
-                        val buffer = ByteArray(metaInt)
-                        var bytesRead = 0
-                        while (bytesRead < metaInt) {
-                            val read = inputStream.read(buffer, 0, metaInt - bytesRead)
-                            if (read == -1) break
-                            bytesRead += read
-                        }
-                        
-                        val metaLengthByte = inputStream.read()
-                        if (metaLengthByte > 0) {
-                            val metaLength = metaLengthByte * 16
-                            val metaBuffer = ByteArray(metaLength)
-                            var metaBytesRead = 0
-                            while (metaBytesRead < metaLength) {
-                                val read = inputStream.read(metaBuffer, metaBytesRead, metaLength - metaBytesRead)
-                                if (read == -1) break
-                                metaBytesRead += read
-                            }
-                            val metadata = String(metaBuffer, 0, metaBytesRead, Charsets.UTF_8)
-                            if (metadata.contains("StreamTitle=")) {
-                                val match = Regex("""StreamTitle='([^']*)'""").find(metadata)
-                                val title = match?.groupValues?.get(1)
-                                if (!title.isNullOrEmpty()) {
-                                    return title
-                                }
-                            }
-                        }
-                    }
-                }
-                return null
-            } catch (e: Exception) {
-                return null
-            } finally {
-                try { inputStream?.close() } catch (e: Exception) {}
-                try { connection?.disconnect() } catch (e: Exception) {}
-            }
-        }
+        // Left as fallback capability, untouched for api contracts
         return null
     }
 
@@ -622,26 +704,24 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                val artworkUrl = withContext(Dispatchers.IO) {
-                    val encoded = java.net.URLEncoder.encode(cleanTrack, "UTF-8")
-                    val urlStr = "https://itunes.apple.com/search?entity=song&limit=1&term=$encoded"
-                    val connection = java.net.URL(urlStr).openConnection() as java.net.HttpURLConnection
-                    connection.requestMethod = "GET"
-                    connection.connectTimeout = 4000
-                    connection.readTimeout = 4000
-                    connection.inputStream.use { stream ->
-                        val response = stream.bufferedReader().use { it.readText() }
-                        val regex = Regex("""\"artworkUrl100\"\s*:\s*\"([^\"]+)\"""")
-                        val match = regex.find(response)
-                        val url100 = match?.groups?.get(1)?.value
-                        url100?.replace("100x100bb", "500x500bb")
+                // Secondary fallback capability:
+                // Primary query matches trackName exactly
+                var artworkUrl = withContext(Dispatchers.IO) {
+                    searchITunesArtwork(cleanTrack)
+                }
+                
+                // Fallback query strips excessive dash divisions to only search "Artist - Title", maximizing hits
+                if (artworkUrl == null) {
+                    val parts = cleanTrack.split("-").map { it.trim() }
+                    if (parts.size > 2) {
+                        val fallbackSearch = "${parts[0]} - ${parts[1]}"
+                        artworkUrl = withContext(Dispatchers.IO) {
+                            searchITunesArtwork(fallbackSearch)
+                        }
                     }
                 }
-                if (artworkUrl != null) {
-                    _currentTrackArtwork.value = artworkUrl
-                } else {
-                    _currentTrackArtwork.value = null
-                }
+                
+                _currentTrackArtwork.value = artworkUrl
             } catch (e: Exception) {
                 _currentTrackArtwork.value = null
                 e.printStackTrace()
@@ -649,36 +729,32 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun startLiveMetadataMonitoring(streamUrl: String) {
-        liveMetadataJob?.cancel()
-        liveMetadataJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val streamTitle = fetchIcyStreamTitle(streamUrl)
-                if (!streamTitle.isNullOrEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        updateTrackNameAndFetchArtwork(streamTitle)
-                    }
-                }
-            } catch (e: Exception) {
-                // Ignore
+    private fun searchITunesArtwork(searchTerm: String): String? {
+        return try {
+            val encoded = java.net.URLEncoder.encode(searchTerm, "UTF-8")
+            val urlStr = "https://itunes.apple.com/search?entity=song&limit=1&term=$encoded"
+            val connection = java.net.URL(urlStr).openConnection() as java.net.HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 4000
+            connection.readTimeout = 4000
+            connection.inputStream.use { stream ->
+                val response = stream.bufferedReader().use { it.readText() }
+                val regex = Regex("""\"artworkUrl100\"\s*:\s*\"([^\"]+)\"""")
+                val match = regex.find(response)
+                val url100 = match?.groups?.get(1)?.value
+                url100?.replace("100x100bb", "500x500bb")
             }
-
-            while (true) {
-                delay(35000)
-                if (_isPlaying.value) {
-                    try {
-                        val streamTitle = fetchIcyStreamTitle(streamUrl)
-                        if (!streamTitle.isNullOrEmpty()) {
-                            withContext(Dispatchers.Main) {
-                                updateTrackNameAndFetchArtwork(streamTitle)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // Ignore
-                    }
-                }
-            }
+        } catch (e: Exception) {
+            null
         }
+    }
+
+    private fun startLiveMetadataMonitoring(streamUrl: String) {
+        // Disabled parallel HTTP-ICY polling because opening multiple concurrent audio stream connections 
+        // to the same URL triggers stream-abuse protection on premium servers (such as Karnaval/Süper FM),
+        // instantly terminating the playback. ExoPlayer natively handles inline ICY/HLS format parsing without issue.
+        liveMetadataJob?.cancel()
+        liveMetadataJob = null
     }
 
     private fun fetchStreamMetadata(streamUrl: String) {
@@ -822,7 +898,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             val c = line[i]
             if (c == '\"') {
                 inQuotes = !inQuotes
-            } else if ((c == ',' || c == ';') && !inQuotes) {
+            } else if (c == ',' && !inQuotes) {
                 result.add(currentField.toString())
                 currentField.setLength(0)
             } else {

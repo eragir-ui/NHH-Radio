@@ -263,11 +263,15 @@ fun MainAppScreen(viewModel: RadioViewModel) {
                 .background(SlateDarkBg)
         ) {
             // Full Screen Blurred backdrop when "Now Playing" is active
-            val backgroundSource = if (activeTab == 0) {
-                if (!currentTrackArtwork.isNullOrEmpty()) {
-                    currentTrackArtwork
-                } else if (!currentStation.logoUrl.isNullOrEmpty()) {
-                    currentStation.logoUrl
+            val backgroundSource: Any? = if (activeTab == 0) {
+                val art = currentTrackArtwork
+                val logo = currentStation.logoUrl
+                if (art is ByteArray && art.isNotEmpty()) {
+                    art
+                } else if (art is String && art.isNotEmpty()) {
+                    art
+                } else if (!logo.isNullOrEmpty()) {
+                    logo
                 } else {
                     null
                 }
@@ -275,7 +279,7 @@ fun MainAppScreen(viewModel: RadioViewModel) {
                 null
             }
 
-            if (!backgroundSource.isNullOrEmpty()) {
+            if (backgroundSource != null) {
                 AsyncImage(
                     model = backgroundSource,
                     contentDescription = null,
@@ -322,7 +326,7 @@ fun MainAppScreen(viewModel: RadioViewModel) {
                             Text(
                                 text = "NHH RADIO",
                                 color = AmberPrimary, // Dynamic theme primary color
-                                fontSize = 23.sp,
+                                fontSize = 26.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontFamily = FontFamily.SansSerif,
                                 letterSpacing = 1.sp,
@@ -491,10 +495,10 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Center Album Artwork box (scales dynamically to fit the width with minimal margins!)
+                // Center Album Artwork box (scenes are always images; no text overlay codes inside!)
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(0.83f)
+                        .fillMaxWidth(0.85f)
                         .aspectRatio(1f)
                         .padding(vertical = 4.dp)
                         .shadow(16.dp, shape = RoundedCornerShape(24.dp), ambientColor = Color(currentStation.gradientStart))
@@ -510,101 +514,108 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                         .border(1.5.dp, SlateCardBorder, RoundedCornerShape(24.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!currentTrackArtwork.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = currentTrackArtwork,
-                            contentDescription = currentTrackName,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(24.dp)),
-                            contentScale = ContentScale.Fit
-                        )
-                    } else if (!currentStation.logoUrl.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = currentStation.logoUrl,
-                            contentDescription = currentStation.name,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(24.dp)),
-                            contentScale = ContentScale.Fit
-                        )
+                    val fallbackArtwork = if (!currentStation.logoUrl.isNullOrEmpty()) currentStation.logoUrl else ""
+                    val art = currentTrackArtwork
+                    val activeArtwork: Any = if (art is ByteArray && art.isNotEmpty()) {
+                        art
+                    } else if (art is String && art.isNotEmpty()) {
+                        art
+                    } else if (!fallbackArtwork.isNullOrEmpty()) {
+                        fallbackArtwork
                     } else {
-                        // Modern live music wave visualizer placeholder when artwork is empty/loading
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(24.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(88.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.08f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.MusicNote,
-                                    contentDescription = "Canlı Yayın Müzik Notası",
-                                    tint = AmberPrimary,
-                                    modifier = Modifier.size(44.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(18.dp))
-                            Text(
-                                text = currentStation.initials,
-                                fontSize = 34.sp,
-                                fontWeight = FontWeight.Black,
-                                color = TextPrimary,
-                                letterSpacing = 2.sp
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "CANLI YAYIN",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = EmeraldAccent.copy(alpha = 0.85f),
-                                letterSpacing = 1.5.sp
-                            )
-                        }
+                        ""
                     }
+
+                    AsyncImage(
+                        model = activeArtwork,
+                        contentDescription = currentTrackName,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(24.dp)),
+                        contentScale = ContentScale.Crop
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // Info Details Block (Station Name & Song Title)
+                // Radio Name from Google Sheet is always displayed right below the album cover
                 Text(
                     text = currentStation.name,
-                    fontSize = 29.sp, // Reduced by 2pt/sp as requested
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.ExtraBold,
                     color = TextPrimary,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                Text(
-                    text = currentTrackName,
-                    fontSize = 18.sp,
-                    color = AmberPrimary,
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .basicMarquee()
-                )
+                // Parse track artist and song names coming from the live metadata stream
+                val trackParts = currentTrackName.split(" - ").map { it.trim() }
+                val (songTitle, artistName) = if (trackParts.size >= 2) {
+                    Pair(trackParts.subList(1, trackParts.size).joinToString(" - "), trackParts[0])
+                } else {
+                    if (currentTrackName == "Canlı Yayın" || currentTrackName == "Yükleniyor..." || currentTrackName.isEmpty()) {
+                        Pair("", currentTrackName)
+                    } else {
+                        Pair("", currentTrackName)
+                    }
+                }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                if (songTitle.isNotEmpty()) {
+                    Text(
+                        text = songTitle,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
 
-                // Favorite and Sleep Timer placed to the left and right of bitrate info
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = artistName,
+                        fontSize = 15.sp,
+                        color = AmberPrimary,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .basicMarquee()
+                    )
+                } else {
+                    // Falls back to direct live stream label if no division is parsed
+                    val statusText = if (artistName.isEmpty()) "Canlı Yayın" else artistName
+                    Text(
+                        text = statusText,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AmberPrimary,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .basicMarquee()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Beautifully expanded row width at 0.92f so modern layout elements (Heart favoriting & Countdown box)
+                // align precisely on the same outer vertical guidelines as the 0.85f Album artwork cover box boundaries!
                 Row(
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
                         .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Inline Favorite Heart Button (Left support)
+                    // Left element: Inline Favorite Heart Button
                     IconButton(
                         onClick = { viewModel.toggleFavorite(currentStation.id) },
                         modifier = Modifier
@@ -619,50 +630,40 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(18.dp))
+                    // Centered element: Dynamic Bitrate & Codec representation in "Aac / 128 Kbps" custom styling!
+                    val rawCodec = if (streamCodec.isNullOrEmpty()) "AAC" else streamCodec!!
+                    val displayCodec = when (rawCodec.uppercase()) {
+                        "AAC" -> "Aac"
+                        "MP3" -> "Mp3"
+                        "OGG" -> "Ogg"
+                        else -> rawCodec.lowercase().replaceFirstChar { it.uppercase() }
+                    }
+                    val displayBitrate = if (streamBitrate.isNullOrEmpty()) {
+                        "128"
+                    } else {
+                        streamBitrate!!.replace("kbps", "", ignoreCase = true).replace("KBPS", "", ignoreCase = true).trim()
+                    }
+                    val codecInfo = "$displayCodec / $displayBitrate Kbps"
 
-                    // Center Details: Bitrate and Codec (with minimal space layout config)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy((-4).dp),
-                        modifier = Modifier.widthIn(min = 100.dp)
-                    ) {
-                        Text(
-                            text = if (streamBitrate.isNullOrEmpty()) "128 kbps" else streamBitrate!!.lowercase(),
-                            fontSize = 12.sp,
-                            color = TextSecondary.copy(alpha = 0.75f),
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp,
-                            style = androidx.compose.ui.text.TextStyle(
-                                platformStyle = androidx.compose.ui.text.PlatformTextStyle(
-                                    includeFontPadding = false
-                                )
+                    Text(
+                        text = codecInfo,
+                        fontSize = 12.sp,
+                        color = TextSecondary.copy(alpha = 0.75f),
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        style = androidx.compose.ui.text.TextStyle(
+                            platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                includeFontPadding = false
                             )
                         )
-                        if (!streamCodec.isNullOrEmpty()) {
-                            Text(
-                                text = streamCodec!!.uppercase(),
-                                fontSize = 9.sp,
-                                color = TextSecondary.copy(alpha = 0.45f),
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp,
-                                style = androidx.compose.ui.text.TextStyle(
-                                    platformStyle = androidx.compose.ui.text.PlatformTextStyle(
-                                        includeFontPadding = false
-                                    )
-                                )
-                            )
-                        }
-                    }
+                    )
 
-                    Spacer(modifier = Modifier.width(18.dp))
-
-                    // Inline Sleep Timer timer (Right Support)
+                    // Right element: Inline Sleep Timer button
                     if (!sleepActive) {
                         IconButton(
                             onClick = { showSleepDialog = true },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(36.dp)
                                 .testTag("nowplay_sleep_btn")
                         ) {
                             Icon(
@@ -673,20 +674,20 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                             )
                         }
                     } else {
-                        // Countdown active: hide alarm clock / timer icon completely! Only show countdown duration text
+                        // Countdown active: elegant duration block
                         Box(
                             modifier = Modifier
                                 .height(32.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(SlateCardBg.copy(alpha = 0.6f))
                                 .clickable { showSleepDialog = true }
-                                .padding(horizontal = 8.dp)
+                                .padding(horizontal = 9.dp)
                                 .testTag("nowplay_sleep_btn"),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = String.format("%02d:%02d", sleepMin, sleepSec),
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 color = EmeraldAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
@@ -697,7 +698,7 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(2.dp)) // Pull play controllers slightly up as requested
+            Spacer(modifier = Modifier.height(18.dp))
 
             // Playback Controller Buttons Row
             Row(
@@ -763,15 +764,15 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1.0f)) // Pulled up appropriately as requested
+            Spacer(modifier = Modifier.height(16.dp)) // Placed slightly below play/pause keys
 
-            // Volume Row: occupies full row width cleanly
+            // Volume Row: occupies full row width cleanly (thickened, draggable circle styler, percentage included)
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                    .fillMaxWidth(0.96f) // Slightly inset for extra clean visual alignment
+                    .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Volume Speaker Icon
                 Icon(
@@ -779,7 +780,7 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                     contentDescription = "Ses Düzeyi",
                     tint = if (volumePercent == 0) TextMuted else TextSecondary,
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(22.dp)
                         .clickable {
                             if (volumePercent > 0) {
                                 viewModel.setSystemVolumePercentage(0)
@@ -789,7 +790,7 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                         }
                 )
 
-                // Volume Slider
+                // Volume Slider (Thicker and customized with beautiful knob)
                 ThinVolumeSlider(
                     value = volumePercent.toFloat(),
                     onValueChange = { viewModel.setSystemVolumePercentage(it.toInt()) },
@@ -812,6 +813,7 @@ fun NowPlayingScreen(viewModel: RadioViewModel) {
                 )
             }
 
+            Spacer(modifier = Modifier.weight(1.0f)) // Remaining spacing pushed to the bottom of card layout
             Spacer(modifier = Modifier.height(20.dp))
         }
     }
@@ -1493,58 +1495,67 @@ fun ThinVolumeSlider(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(28.dp), // Thinner touch area height
+            .height(36.dp), // Comfortable height for interaction
         contentAlignment = Alignment.CenterStart
     ) {
-        val width = constraints.maxWidth.toFloat()
+        val widthPx = constraints.maxWidth.toFloat()
         val density = androidx.compose.ui.platform.LocalDensity.current
         val progressPercent = value.coerceIn(0f, 99f)
+        
+        // Let's reserve some space at the start and end for half the thumb size (e.g. 10.dp) for smooth sliding
+        val thumbSizeDp = 20.dp
+        val thumbRadiusPx = with(density) { (thumbSizeDp / 2).toPx() }
+        val usableWidthPx = (widthPx - 2 * thumbRadiusPx).coerceAtLeast(1f)
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .pointerInput(width) {
+                .pointerInput(widthPx) {
                     detectTapGestures { offset ->
-                        val pct = (offset.x / width).coerceIn(0f, 1f)
+                        val localX = (offset.x - thumbRadiusPx).coerceIn(0f, usableWidthPx)
+                        val pct = localX / usableWidthPx
                         onValueChange(pct * 99f)
                     }
                 }
-                .pointerInput(width) {
-                    detectHorizontalDragGestures { change, dragAmount ->
+                .pointerInput(widthPx) {
+                    detectHorizontalDragGestures { change, _ ->
                         change.consume()
-                        val pct = (change.position.x / width).coerceIn(0f, 1f)
+                        val localX = (change.position.x - thumbRadiusPx).coerceIn(0f, usableWidthPx)
+                        val pct = localX / usableWidthPx
                         onValueChange(pct * 99f)
                     }
                 },
             contentAlignment = Alignment.CenterStart
         ) {
-            // Track Line - sleek 4dp line
+            // Background track (thicker now, e.g. 7.dp)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .height(7.dp)
+                    .clip(RoundedCornerShape(3.5.dp))
                     .background(inactiveColor)
             ) {
+                // Active track
+                val fraction = progressPercent / 99f
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(progressPercent / 99f)
-                        .height(4.dp)
+                        .fillMaxWidth(fraction)
+                        .height(7.dp)
                         .background(activeColor)
                 )
             }
 
-            // Thumb - small round circle (12dp size)
-            val thumbPositionDp = with(density) {
-                ((progressPercent / 99f) * width).toDp()
-            }
+            // Draggable Thumb - visible round handle
+            val thumbOffsetPx = (progressPercent / 99f) * usableWidthPx
+            val thumbOffsetDp = with(density) { thumbOffsetPx.toDp() }
 
             Box(
                 modifier = Modifier
-                    .offset(x = thumbPositionDp - 6.dp)
-                    .size(12.dp)
+                    .offset(x = thumbOffsetDp)
+                    .size(thumbSizeDp)
                     .clip(CircleShape)
-                    .background(activeColor)
+                    .background(Color.White) // High contrast white knob
+                    .border(2.5.dp, activeColor, CircleShape) // Beautiful accent border around the knob
             )
         }
     }
