@@ -430,17 +430,20 @@ fun MainAppScreen(viewModel: RadioViewModel) {
                     when (activeTab) {
                         0 -> NowPlayingScreen(
                             viewModel = viewModel,
-                            onSwipeToRadios = { activeTab = 1 }
+                            onSwipeLeft = { activeTab = 1 },
+                            onSwipeRight = { activeTab = 2 }
                         )
                         1 -> RadiosScreen(
                             viewModel = viewModel,
                             onStationSelected = { activeTab = 0 },
-                            onSwipeToPlayer = { activeTab = 0 }
+                            onSwipeLeft = { activeTab = 2 },
+                            onSwipeRight = { activeTab = 0 }
                         )
                         2 -> FavoritesScreen(
                             viewModel = viewModel,
                             onStationSelected = { activeTab = 0 },
-                            onSwipeToPlayer = { activeTab = 0 }
+                            onSwipeLeft = { activeTab = 0 },
+                            onSwipeRight = { activeTab = 1 }
                         )
                     }
                 }
@@ -460,7 +463,8 @@ fun MainAppScreen(viewModel: RadioViewModel) {
 @Composable
 fun NowPlayingScreen(
     viewModel: RadioViewModel,
-    onSwipeToRadios: () -> Unit
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit
 ) {
     val colors = LocalThemeColors.current
     val SlateDarkBg = colors.bg
@@ -534,9 +538,10 @@ fun NowPlayingScreen(
                         .pointerInput(Unit) {
                             detectHorizontalDragGestures(
                                 onDragEnd = {
-                                    // User swiped horizontally above the threshold
-                                    if (kotlin.math.abs(dragOffset) > 80f) {
-                                        onSwipeToRadios()
+                                    if (dragOffset < -80f) {
+                                        onSwipeLeft()
+                                    } else if (dragOffset > 80f) {
+                                        onSwipeRight()
                                     }
                                     dragOffset = 0f
                                 },
@@ -830,7 +835,8 @@ fun NowPlayingScreen(
 fun RadiosScreen(
     viewModel: RadioViewModel,
     onStationSelected: () -> Unit,
-    onSwipeToPlayer: () -> Unit
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit
 ) {
     val colors = LocalThemeColors.current
     val SlateDarkBg = colors.bg
@@ -866,9 +872,10 @@ fun RadiosScreen(
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        // "sola kaydırınca radyolardan şimdi çalışıyora" -> Finger moves left (deltaX < 0)
                         if (dragOffset < -80f) {
-                            onSwipeToPlayer()
+                            onSwipeLeft()
+                        } else if (dragOffset > 80f) {
+                            onSwipeRight()
                         }
                         dragOffset = 0f
                     },
@@ -992,7 +999,8 @@ fun RadiosScreen(
 fun FavoritesScreen(
     viewModel: RadioViewModel,
     onStationSelected: () -> Unit,
-    onSwipeToPlayer: () -> Unit
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit
 ) {
     val colors = LocalThemeColors.current
     val SlateDarkBg = colors.bg
@@ -1023,9 +1031,10 @@ fun FavoritesScreen(
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        // "sola kaydırınca radyolardan şimdi çalışıyora" -> Finger moves left (deltaX < 0)
                         if (dragOffset < -80f) {
-                            onSwipeToPlayer()
+                            onSwipeLeft()
+                        } else if (dragOffset > 80f) {
+                            onSwipeRight()
                         }
                         dragOffset = 0f
                     },
